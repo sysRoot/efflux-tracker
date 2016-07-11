@@ -75,7 +75,8 @@ function handleBroadcast( type, payload )
         case Messages.WINDOW_SCROLLED:
 
             // ensure the controlContainer is always visible regardless of scroll offset
-            // threshold defines when to offset the containers top, the last number defines the fixed header height
+            // threshold defines when to offset the containers top
+            // the last number defines the fixed header height (see menu.less)
             const scrollY   = window.scrollY;
             const threshold = ( controlOffsetY = controlOffsetY || DOM.getElementCoordinates( container, true ).y - 46 );
 

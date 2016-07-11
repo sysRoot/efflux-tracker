@@ -46,7 +46,7 @@ let playing           = false,
     beatUnit          = 4;
 
 let currentMeasure, measureStartTime, firstMeasureStartTime,
-    currentStep, nextNoteTime, channels, queueHandlers = [];
+    currentStep, channels, queueHandlers = [];
 
 const SequencerController = module.exports =
 {
@@ -119,11 +119,7 @@ const SequencerController = module.exports =
         ].forEach(( msg ) => Pubsub.subscribe( msg, handleBroadcast ));
 
         worker = new Worker( "../../workers/SequencerWorker.js" );
-        worker.onmessage = ( msg ) =>
-        {
-            if ( msg.data.cmd === "collect" )
-                collect();
-        };
+        worker.onmessage = handleWorkerMessage;
     },
 
     /**
@@ -156,8 +152,11 @@ const SequencerController = module.exports =
             cl.add( "icon-stop" );
             cl.remove( "icon-play" );
 
-            worker.postMessage({ "cmd" : "start" });
-
+            worker.postMessage({
+                cmd: "start",
+                interval: 25,
+                stepPrecision: stepPrecision
+            });
             Pubsub.publishSync( Messages.PLAYBACK_STARTED );
         }
         else {
@@ -165,7 +164,7 @@ const SequencerController = module.exports =
             cl.add( "icon-play" );
             cl.remove( "icon-stop" );
 
-            worker.postMessage({ "cmd" : "stop" });
+            worker.postMessage({ cmd: "stop" });
 
             Pubsub.publishSync( Messages.PLAYBACK_STOPPED );
 
@@ -184,9 +183,9 @@ const SequencerController = module.exports =
      * @param {number=} currentTime optional time to sync given measure to
      *        this will default to the currentTime of the AudioContext for instant enqueuing
      */
-    setPosition( measure, currentTime )
+    setPosition( measure, currentTime, block )
     {
-        let song = efflux.activeSong;
+        const song = efflux.activeSong;
         if ( measure >= song.patterns.length )
             measure = song.patterns.length - 1;
 
@@ -197,11 +196,12 @@ const SequencerController = module.exports =
             currentTime = audioContext.currentTime;
 
         currentMeasure        = measure;
-        nextNoteTime          = currentTime;
         measureStartTime      = currentTime;
         firstMeasureStartTime = currentTime - ( measure * ( 60.0 / song.meta.tempo * beatAmount ));
 
         channels = efflux.activeSong.patterns[ currentMeasure ].channels;
+
+        updateWorker(( block === true ) ? null : currentTime );
     },
 
     getPosition()
@@ -224,6 +224,7 @@ const SequencerController = module.exports =
 
         currentPositionTitle.innerHTML = ( editorModel.activePattern + 1 ).toString();
         maxPositionTitle.innerHTML     = efflux.activeSong.patterns.length.toString();
+        updateWorker();
     }
 };
 
@@ -270,6 +271,34 @@ function handleBroadcast( type, payload )
         // when a MIDI device is connected, we allow recording from MIDI input
         case Messages.MIDI_DEVICE_CONNECTED:
             recordBTN.classList.remove( "disabled" );
+            break;
+    }
+}
+
+function handleWorkerMessage( msg )
+{
+    switch ( msg.data.cmd ) {
+        case "collect":
+            collect();
+            break;
+
+        case "step":
+            step( msg.data.nextNoteTime );
+            break;
+
+        case "getTime":
+            worker.postMessage({
+                cmd: "update",
+                currentTime: audioContext.currentTime
+            });
+            break;
+
+        case "metronome":
+            Metronome.play( 2, currentStep, stepPrecision, msg.data.time, audioContext );
+            break;
+
+        case "enqueue":
+            enqueueEvent( msg.data.event, msg.data.measure, msg.data.channel, msg.data.time );
             break;
     }
 }
@@ -377,44 +406,13 @@ function handleTempoChange( e )
 
 function collect()
 {
-    // adapted from http://www.html5rocks.com/en/tutorials/audio/scheduling/
-
-    const sequenceEvents = !( recording && Metronome.countIn && !Metronome.countInComplete );
-    let i, j, channel, event, compareTime;
-
-    while ( nextNoteTime < ( audioContext.currentTime + scheduleAheadTime ))
-    {
-        if ( sequenceEvents )
-        {
-            compareTime = ( nextNoteTime - measureStartTime );
-            i = channels.length;
-
-            while ( i-- )
-            {
-                channel = channels[ i ];
-                j = channel.length;
-
-                while ( j-- )
-                {
-                    event = channel[ j ];
-
-                    if ( event && !event.seq.playing && !event.recording &&
-                         event.seq.startMeasure === currentMeasure &&
-                         compareTime >= event.seq.startMeasureOffset &&
-                         compareTime < ( event.seq.startMeasureOffset + event.seq.length ))
-                    {
-                        // enqueue into AudioContext queue at the right time
-                        enqueueEvent( event, nextNoteTime, currentMeasure, i );
-                    }
-                }
-            }
-        }
-        if ( Metronome.enabled ) // sound the metronome
-            Metronome.play( 2, currentStep, stepPrecision, nextNoteTime, audioContext );
-
-        // advance to next step position
-        step();
-    }
+    updateWorker();
+    worker.postMessage({
+        cmd: "collect",
+        sequenceEvents: !( recording && Metronome.countIn && !Metronome.countInComplete ),
+        metronomeEnabled: Metronome.enabled,
+        tempo: efflux.activeSong.meta.tempo
+    });
 }
 
 /**
@@ -423,15 +421,10 @@ function collect()
  * pattern will either loop or we the Sequencer will progress onto the next pattern
  *
  * @private
+ * @param {number} aNextNoteTime
  */
-function step()
+function step( aNextNoteTime )
 {
-    const song          = efflux.activeSong;
-    const totalMeasures = song.patterns.length;
-
-    // Advance current note and time by the given subdivision...
-    nextNoteTime += (( 60 / song.meta.tempo ) * 4 ) / stepPrecision;
-
     // advance the beat number, wrap to zero when start of next bar is enqueued
 
     if ( ++currentStep === stepPrecision )
@@ -440,7 +433,7 @@ function step()
 
         // advance the measure if the Sequencer wasn't looping
 
-        if ( !looping && ++currentMeasure === totalMeasures )
+        if ( !looping && ++currentMeasure === efflux.activeSong.patterns.length )
         {
             // last measure reached, jump back to first
             currentMeasure = 0;
@@ -454,7 +447,7 @@ function step()
                 return;
             }
         }
-        SequencerController.setPosition( currentMeasure, nextNoteTime );
+        SequencerController.setPosition( currentMeasure, aNextNoteTime, true );
 
         if ( recording )
         {
@@ -487,27 +480,30 @@ function switchPattern( newMeasure )
         editorModel.amountOfSteps = newSteps;
         Pubsub.publish( Messages.PATTERN_STEPS_UPDATED, newSteps );
     }
+    updateWorker();
 }
 
 /**
  * @private
  *
- * @param {AUDIO_EVENT} aEvent
- * @param {number} aTime AudioContext timestamp to start event playback
+ * @param {number} aEventIndex idex of the event in its channels
  * @param {number} aEventMeasure measure the event belongs to
  * @param {number} aEventChannel channel the event belongs to
+ * @param {number} aTime AudioContext timestamp to start event playback
  */
-function enqueueEvent( aEvent, aTime, aEventMeasure, aEventChannel )
+function enqueueEvent( aEventIndex, aEventMeasure, aEventChannel, aTime )
 {
-    aEvent.seq.playing = true; // lock the Event for further querying during its playback
-
     // calculate the total duration for the event
 
     const patternDuration = ( 60 / efflux.activeSong.meta.tempo ) * beatAmount;
     const patterns        = efflux.activeSong.patterns;
+    const audioEvent      = patterns[ aEventMeasure ].channels[ aEventChannel ][ aEventIndex ];
     let duration          = ( 1 / patterns[ aEventMeasure ].channels[ aEventChannel ].length ) * patternDuration;
 
-    if ( aEvent.action === 1 ) // but only for "noteOn" events
+    audioEvent.seq.playing = true; // lock the Event for further querying during its playback
+
+    // calculate the total duration for "noteOn" events
+    if ( audioEvent.action === 1 )
     {
         let foundEvent = false, foundEnd = false, compareEvent, channel, j, jl;
 
@@ -521,7 +517,7 @@ function enqueueEvent( aEvent, aTime, aEventMeasure, aEventChannel )
 
                 if ( !foundEvent )
                 {
-                    if ( compareEvent === aEvent )
+                    if ( compareEvent === audioEvent )
                         foundEvent = true;
                 }
                 else if ( !foundEnd )
@@ -540,16 +536,16 @@ function enqueueEvent( aEvent, aTime, aEventMeasure, aEventChannel )
                 break;
         }
     }
-    aEvent.seq.length   = duration;
-    aEvent.seq.mpLength = patternDuration / patterns[ aEventMeasure ].steps;
+    audioEvent.seq.length   = duration;
+    audioEvent.seq.mpLength = patternDuration / patterns[ aEventMeasure ].steps;
 
     // play back the event in the AudioController
 
-    audioController.noteOn( aEvent, efflux.activeSong.instruments[ aEvent.instrument ], aTime );
+    audioController.noteOn( audioEvent, efflux.activeSong.instruments[ audioEvent.instrument ], aTime );
 
     // noteOff will be triggered by the Sequencer
 
-    dequeueEvent( aEvent, aTime + aEvent.seq.length );
+    dequeueEvent( audioEvent, aTime + audioEvent.seq.length );
 }
 
 /**
@@ -563,7 +559,7 @@ function enqueueEvent( aEvent, aTime, aEventMeasure, aEventChannel )
  */
 function dequeueEvent( aEvent, aTime )
 {
-    let clock = AudioUtil.createTimer( audioContext, aTime, aTimerEvent =>
+    let clock = AudioUtil.createTimer( audioContext, aTime, ( aTimerEvent ) =>
     {
         aEvent.seq.playing = false;
         audioController.noteOff( aEvent, efflux.activeSong.instruments[ aEvent.instrument ]);
@@ -599,4 +595,25 @@ function freeHandler( aNode )
     const i = queueHandlers.indexOf( aNode );
     if ( i !== -1 )
         queueHandlers.splice( i, 1 );
+}
+
+/**
+ * @private
+ * @param {number=} nextNoteTime
+ */
+function updateWorker( nextNoteTime )
+{
+    const data = {
+        cmd: "update",
+        channels: channels,
+        currentTime: audioContext.currentTime,
+        scheduleAheadTime: scheduleAheadTime,
+        currentMeasure: currentMeasure,
+        measureStartTime : measureStartTime
+    };
+
+    if ( typeof nextNoteTime === "number" ) {
+        data.nextNoteTime = nextNoteTime;
+    }
+    worker.postMessage( data );
 }

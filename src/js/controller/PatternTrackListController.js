@@ -35,9 +35,9 @@ const PatternRenderer = require( "../components/PatternRenderer" );
 
 /* private properties */
 
-let wrapper, container, efflux, editorModel, keyboardController, stepHighlight;
+let wrapper, container, efflux, editorModel, keyboardController;
 let interactionData = {}, currentSteps = 0,
-    selectionModel, patternCopy, stepSelect, pContainers, pContainerSteps, patternRenderer;
+    selectionModel, patternCopy, stepSelect, pContainers, pContainerSteps, renderer;
 
 const PatternTrackListController = module.exports =
 {
@@ -57,10 +57,9 @@ const PatternTrackListController = module.exports =
         container     = containerRef;
         wrapper       = containerRef.querySelector( ".wrapper" );
         stepSelect    = document.querySelector( "#patternSteps"  );
-        stepHighlight = containerRef.querySelector( ".highlight" );
 
         selectionModel  = efflux.SelectionModel;
-        patternRenderer = new PatternRenderer( containerRef, wrapper );
+        renderer = new PatternRenderer( containerRef, wrapper );
 
         PatternTrackListController.update(); // sync view with model state
 
@@ -91,6 +90,7 @@ const PatternTrackListController = module.exports =
             Messages.PATTERN_SWITCH,
             Messages.PATTERN_SET_HOR_SCROLL,
             Messages.HIGHLIGHT_ACTIVE_STEP,
+            Messages.STEP_POSITION_REACHED,
             Messages.EDIT_NOTE_AT_POSITION,
             Messages.ADD_EVENT_AT_POSITION,
             Messages.ADD_OFF_AT_POSITION,
@@ -140,7 +140,7 @@ const PatternTrackListController = module.exports =
             });
         }
 
-        // update PatternRenderer
+        // TODO update PatternRenderer
 
         //pattern       : pattern,
         //activeChannel : editorModel.activeInstrument,
@@ -176,8 +176,11 @@ function handleBroadcast( type, payload )
             container.scrollLeft = payload;
             break;
 
+        case Messages.STEP_POSITION_REACHED:
+            renderer.activeStep = payload[ 0 ] / ( payload[ 1 ] / editorModel.amountOfSteps );
+            break;
+
         case Messages.HIGHLIGHT_ACTIVE_STEP:
-            stepHighlight.style.top = ( payload * 32 ) + "px";
             highlightActiveStep();
             break;
 
@@ -210,44 +213,9 @@ function handleBroadcast( type, payload )
             break;
 
         case Messages.UI_INVALIDATED:
-            patternRenderer.calculateSize();
+            renderer.calculateSize();
             PatternTrackListController.update();
             break;
-    }
-}
-
-function highlightActiveStep()
-{
-    grabPatternContainersFromTemplate();
-    const activeStyle = "active", selectedStyle = "selected",
-          activeStep = editorModel.activeStep;
-
-    let selection, pContainer, items, item;
-
-    for ( let i = 0, l = pContainers.length; i < l; ++i )
-    {
-        pContainer = pContainers[ i ];
-        selection  = selectionModel.selectedChannels[ i ];
-        items      = grabPatternContainerStepFromTemplate( i );
-        pContainer.querySelectorAll( "li" );
-
-        let j = items.length;
-        while ( j-- )
-        {
-            item = items[ j ].classList;
-
-            if ( i === editorModel.activeInstrument && j === activeStep )
-                item.add( activeStyle );
-            else
-                item.remove( activeStyle );
-
-            // highlight selection
-
-            if ( selection && selection.indexOf( j ) > -1 )
-                item.add( selectedStyle );
-            else
-                item.remove( selectedStyle );
-        }
     }
 }
 
@@ -332,22 +300,27 @@ function handleInteraction( aEvent )
     Pubsub.publish( Messages.DISPLAY_HELP, "helpTopicTracker" );
 }
 
-function editNoteForStep()
-{
+function highlightActiveStep() {
+    renderer.highlightActiveStep(
+        editorModel.activeStep,
+        editorModel.activeInstrument,
+        selectionModel.selectedChannels
+    );
+}
+
+function editNoteForStep() {
     Pubsub.publish( Messages.OPEN_NOTE_ENTRY_PANEL, function() {
         keyboardController.setListener( PatternTrackListController ); // restore interest in keyboard controller events
     });
 }
 
-function editModuleParamsForStep()
-{
+function editModuleParamsForStep() {
     Pubsub.publish( Messages.OPEN_MODULE_PARAM_PANEL, function() {
         keyboardController.setListener( PatternTrackListController ); // restore interest in keyboard controller events
     });
 }
 
-function addOffEvent()
-{
+function addOffEvent() {
     const offEvent = EventFactory.createAudioEvent();
     offEvent.action = 2; // noteOff;
     addEventAtPosition( offEvent );
@@ -500,7 +473,6 @@ function addEventAtPosition( event, optData )
             event.instrument = prevEvent.data.instrument;
         }
     }
-
     // TODO: this is a duplicate from KeyboardController !! (this moves to the next step in the track)
     const maxStep = efflux.activeSong.patterns[ editorModel.activePattern ].steps - 1;
 
@@ -508,8 +480,7 @@ function addEventAtPosition( event, optData )
         editorModel.activeStep = maxStep;
 
     selectionModel.clearSelection();
-
-    Pubsub.publishSync( Messages.HIGHLIGHT_ACTIVE_STEP );
+    highlightActiveStep();
     // E.O. TODO
 
     PatternTrackListController.update();

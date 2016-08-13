@@ -120,8 +120,6 @@ function handleBroadcast( type, payload )
                 if ( step % diff !== 0 )
                     return;
 
-                Pubsub.publish( Messages.HIGHLIGHT_ACTIVE_STEP, ( step / diff )); // PatternTrackListController...
-
                 let i = patternIndices.length, number;
 
                 while ( i-- )

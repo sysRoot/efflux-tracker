@@ -22,6 +22,7 @@
  */
 "use strict";
 
+const Config  = require( "../config/Config" );
 const zCanvas = require( "zCanvas" ).zCanvas;
 const zSprite = require( "zCanvas" ).zSprite;
 const Style   = require( "zjslib" ).Style;
@@ -45,9 +46,12 @@ function PatternRenderer( containerRef, containerWrapperRef )
 
     /* instance properties */
 
-    this._container = containerRef;
-    this._wrapper   = containerWrapperRef;
-    this._canvas    = new zCanvas( 10, 10, true );
+    this.activeStep    = 0;
+    this._container    = containerRef;
+    this._wrapper      = containerWrapperRef;
+    this._canvas       = new zCanvas( 10, 10, true );
+    this._patternSteps = 16;
+    this._selection    = { x: 0, y: 0, w: 0, h: 0 };
 
     /* initialization */
 
@@ -69,7 +73,44 @@ PatternRenderer.prototype.calculateSize = function() {
     this._bounds.width  = width;
     this._bounds.height = height;
 
+    this._stepWidth = Math.round( this._bounds.width / Config.INSTRUMENT_AMOUNT );
+
     this._canvas.setDimensions( width, height );
+};
+
+PatternRenderer.prototype.highlightActiveStep = function( activeStep, activeInstrument, selectedChannels )
+{
+    const stepHeight = Math.round( this._bounds.height / this._patternSteps );
+
+    if ( selectedChannels.length > 0 ) {
+
+        let minX = selectedChannels.length, maxX = 0, minStep = this._patternSteps, maxStep = 0;
+        let i = selectedChannels.length, amountSelected = 0, channelSelection;
+
+        while ( i-- ) {
+
+            if ( channelSelection = selectedChannels[ i ]) {
+
+                minX = Math.min( minX, i );
+                maxX = Math.max( maxX, i );
+
+                minStep = Math.min( minStep, channelSelection[ 0 ]);
+                maxStep = Math.max( maxStep, channelSelection[ channelSelection.length - 1 ]);
+
+                ++amountSelected;
+            }
+        }
+        this._selection.x = minX * this._stepWidth;
+        this._selection.y = minStep * stepHeight;
+        this._selection.w = amountSelected * this._stepWidth;
+        this._selection.h = ( maxStep * stepHeight ) - this._selection.y;
+    }
+    else {
+        this._selection.x = activeInstrument * this._stepWidth;
+        this._selection.y = activeStep * stepHeight;
+        this._selection.w = this._stepWidth;
+        this._selection.h = stepHeight;
+    }
 };
 
 /**
@@ -78,6 +119,18 @@ PatternRenderer.prototype.calculateSize = function() {
  */
 PatternRenderer.prototype.draw = function( ctx )
 {
+    const stepHeight = this._bounds.height / this._patternSteps;
+
+    if ( this._selection.w > 0 ) {
+        ctx.strokeStyle = "yellow";
+        ctx.lineWidth = 3;
+        ctx.strokeRect( this._selection.x + .5, this._selection.y, this._selection.w - 3, this._selection.h );
+    }
+
+    // highlight
+    ctx.fillStyle = "rgba(255,255,255,.25)";
+    ctx.fillRect( 0, this.activeStep * stepHeight, this._bounds.width, stepHeight );
+
     // TODO : fillText only when pattern contents mutate
     // create a cached image which is redrawn continously
     // OR: do we extend zCanvas directly override its render method ?

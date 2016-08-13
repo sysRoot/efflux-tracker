@@ -219,7 +219,7 @@ const SequencerController = module.exports =
             channelQueue.forEach( function( list, index ) {
                 let q = list.head;
                 while ( q ) {
-                    dequeueEvent(q.data, currentTime );
+                    dequeueEvent( q.data, currentTime );
                     q.remove();
                     q = list.head;
                 }

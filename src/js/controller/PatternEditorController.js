@@ -109,8 +109,8 @@ function handleBroadcast( type, payload )
 
             rafPending = true;
 
-            requestAnimationFrame( function()
-            {
+            requestAnimationFrame(() => {
+
                 rafPending = false;
 
                 const step  = payload[ 0 ],

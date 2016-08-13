@@ -103,7 +103,7 @@ PatternRenderer.prototype.highlightActiveStep = function( activeStep, activeInst
         this._selection.x = minX * this._stepWidth;
         this._selection.y = minStep * stepHeight;
         this._selection.w = amountSelected * this._stepWidth;
-        this._selection.h = ( maxStep * stepHeight ) - this._selection.y;
+        this._selection.h = stepHeight + (( maxStep - minStep ) * stepHeight );
     }
     else {
         this._selection.x = activeInstrument * this._stepWidth;
@@ -119,12 +119,12 @@ PatternRenderer.prototype.highlightActiveStep = function( activeStep, activeInst
  */
 PatternRenderer.prototype.draw = function( ctx )
 {
-    const stepHeight = this._bounds.height / this._patternSteps;
+    const stepHeight = Math.round( this._bounds.height / this._patternSteps );
 
     if ( this._selection.w > 0 ) {
         ctx.strokeStyle = "yellow";
-        ctx.lineWidth = 3;
-        ctx.strokeRect( this._selection.x + .5, this._selection.y, this._selection.w - 3, this._selection.h );
+        ctx.lineWidth = 2;
+        ctx.strokeRect( this._selection.x, this._selection.y, this._selection.w - 2, this._selection.h );
     }
 
     // highlight

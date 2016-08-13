@@ -35,6 +35,8 @@ module.exports =
     CONFIRM                   : "SYSCF", // payload is a Object {{ message: string, confirm: Function, cancel: Function }}
     WINDOW_SCROLLED           : "SYS:2",
     WINDOW_RESIZED            : "SYS:3",
+    INVALIDATE_UI             : "SYS:4",
+    UI_INVALIDATED            : "SYS:5",
 
     // UI messages
 

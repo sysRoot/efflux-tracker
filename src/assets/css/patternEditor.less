@@ -96,6 +96,13 @@
   .wrapper {
     width: ( 8 * @patternWidth );
   }
+
+  canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    .noEvents; // allow click through on Canvas (underlying HTML container .wrapper captures the events)
+  }
 }
 
 #patternTrackList

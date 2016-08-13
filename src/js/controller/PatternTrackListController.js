@@ -22,21 +22,22 @@
  */
 "use strict";
 
-const Pubsub         = require( "pubsub-js" );
-const Config         = require( "../config/Config" );
-const Messages       = require( "../definitions/Messages" );
-const EventFactory   = require( "../model/factory/EventFactory" );
-const PatternFactory = require( "../model/factory/PatternFactory" );
-const Form           = require( "../utils/Form" );
-const EventUtil      = require( "../utils/EventUtil" );
-const ObjectUtil     = require( "../utils/ObjectUtil" );
-const PatternUtil    = require( "../utils/PatternUtil" );
+const Pubsub          = require( "pubsub-js" );
+const Config          = require( "../config/Config" );
+const Messages        = require( "../definitions/Messages" );
+const EventFactory    = require( "../model/factory/EventFactory" );
+const PatternFactory  = require( "../model/factory/PatternFactory" );
+const Form            = require( "../utils/Form" );
+const EventUtil       = require( "../utils/EventUtil" );
+const ObjectUtil      = require( "../utils/ObjectUtil" );
+const PatternUtil     = require( "../utils/PatternUtil" );
+const PatternRenderer = require( "../components/PatternRenderer" );
 
 /* private properties */
 
 let wrapper, container, efflux, editorModel, keyboardController, stepHighlight;
-let interactionData = {},
-    selectionModel, patternCopy, stepSelect, pContainers, pContainerSteps;
+let interactionData = {}, currentSteps = 0,
+    selectionModel, patternCopy, stepSelect, pContainers, pContainerSteps, patternRenderer;
 
 const PatternTrackListController = module.exports =
 {
@@ -58,7 +59,8 @@ const PatternTrackListController = module.exports =
         stepSelect    = document.querySelector( "#patternSteps"  );
         stepHighlight = containerRef.querySelector( ".highlight" );
 
-        selectionModel = efflux.SelectionModel;
+        selectionModel  = efflux.SelectionModel;
+        patternRenderer = new PatternRenderer( containerRef, wrapper );
 
         PatternTrackListController.update(); // sync view with model state
 
@@ -94,7 +96,8 @@ const PatternTrackListController = module.exports =
             Messages.ADD_OFF_AT_POSITION,
             Messages.REMOVE_NOTE_AT_POSITION,
             Messages.EDIT_MOD_PARAMS_FOR_STEP,
-            Messages.EDIT_NOTE_FOR_STEP
+            Messages.EDIT_NOTE_FOR_STEP,
+            Messages.UI_INVALIDATED
 
         ].forEach(( msg ) => Pubsub.subscribe( msg, handleBroadcast ));
     },
@@ -106,29 +109,42 @@ const PatternTrackListController = module.exports =
         if ( activePattern >= efflux.activeSong.patterns.length )
             activePattern = efflux.activeSong.patterns.length - 1;
 
-        // record the current scroll offset of the container so we can restore it after updating of the HTML
-        const coordinates = { x: container.scrollLeft, y: container.scrollTop };
-
         const pattern = efflux.activeSong.patterns[ activePattern ];
 
         // render the currently active pattern on screen
 
-        efflux.TemplateService.render( "patternTrackList", wrapper, {
+        if ( currentSteps !== pattern.steps ) {
 
-            steps         : pattern.steps,
-            pattern       : pattern,
-            activeChannel : editorModel.activeInstrument,
-            activeStep    : editorModel.activeStep
+            // we only re-render the HTML template when the step amount has changed
+            // record the current scroll offset of the container so we can restore it after updating of the HTML
 
-        }).then(() => {
-            // clear cached containers after render
-            pContainers = null;
-            pContainerSteps = [];
-        });
+            currentSteps = pattern.steps;
+            const coordinates = { x: container.scrollLeft, y: container.scrollTop };
 
-        Form.setSelectedOption( stepSelect, pattern.steps );
-        container.scrollLeft = coordinates.x;
-        container.scrollTop  = coordinates.y;
+            efflux.TemplateService.render( "patternTrackList", wrapper, {
+
+                steps   : pattern.steps,
+                pattern : pattern
+
+            }).then(() => {
+
+                // clear cached containers after render
+                pContainers = null;
+                pContainerSteps = [];
+
+                Form.setSelectedOption( stepSelect, pattern.steps );
+                container.scrollLeft = coordinates.x;
+                container.scrollTop  = coordinates.y;
+
+                Pubsub.publishSync( Messages.INVALIDATE_UI );
+            });
+        }
+
+        // update PatternRenderer
+
+        //pattern       : pattern,
+        //activeChannel : editorModel.activeInstrument,
+        //activeStep    : editorModel.activeStep
     }
 };
 
@@ -191,6 +207,11 @@ function handleBroadcast( type, payload )
 
         case Messages.EDIT_NOTE_FOR_STEP:
             editNoteForStep();
+            break;
+
+        case Messages.UI_INVALIDATED:
+            patternRenderer.calculateSize();
+            PatternTrackListController.update();
             break;
     }
 }
@@ -423,6 +444,7 @@ function handlePatternStepChange( aEvent )
     });
 
     Pubsub.publish( Messages.PATTERN_STEPS_UPDATED, newAmount );
+    Pubsub.publish( Messages.INVALIDATE_UI );
     PatternTrackListController.update(); // sync with model
 }
 

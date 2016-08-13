@@ -74,7 +74,7 @@ module.exports =
             Messages.SHOW_LOADER,
             Messages.HIDE_LOADER,
             Messages.CLOSE_OVERLAYS,
-            Messages.PATTERN_STEPS_UPDATED,
+            Messages.INVALIDATE_UI,
             Messages.DISPLAY_HELP,
             Messages.SONG_LOADED
 
@@ -121,7 +121,7 @@ function handleBroadcast( type, payload )
             }
             break;
 
-        case Messages.PATTERN_STEPS_UPDATED:
+        case Messages.INVALIDATE_UI:
         case Messages.DISPLAY_HELP:
             calculateDimensions();
             break;
@@ -187,4 +187,6 @@ function calculateDimensions( aEvent )
 
     helpSection.style.height   = gs( trackList, "height" );
     patternEditor.style.height = gs( trackList, "height" );
+
+    Pubsub.publish( Messages.UI_INVALIDATED );
 }

@@ -1,34 +1,7 @@
 {{#each pattern.channels}}
 <ul class="pattern">
     {{#each this}}
-        {{#if (and
-            (eq @index ../../activeStep)
-            (eq @../index ../../activeChannel))}}
-        <li class="active">
-    {{else}}
-        <li>
-    {{/if}}
-        {{#if this.action}}
-            {{# if this.note}}
-            <span class="note">
-                {{this.note}} - {{this.octave}}
-            </span>
-            <span class="instrument">
-                {{this.instrument}}
-            </span>
-            {{else}}
-                //// OFF ////
-            {{/if}}
-        {{else}}
-            <span class="note empty">----</span>
-            <span class="instrument"></span>
-        {{/if}}
-        {{# if this.mp }}
-        <span class="moduleParam">
-            {{mparam this.mp}}
-        </span>
-        {{/if}}
-    </li>
+    <li>&nbsp;</li>
     {{/each}}
 </ul>
 {{/each}}
